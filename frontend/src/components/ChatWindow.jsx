@@ -433,7 +433,7 @@ const ChatWindow = () => {
   /* ================= VIDEO ================= */
   // ... (createPeer remains same)
 
-  const startVideo = async () => {
+  const startVideo = async (constraints = { video: true, audio: true }) => {
     // Safety: stop any existing tracks
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -441,19 +441,21 @@ const ChatWindow = () => {
 
     try {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error("Your browser does not support camera access or you are not using a secure (HTTPS) connection.");
+        throw new Error("Your browser does not support camera/microphone access or you are not using a secure (HTTPS) connection.");
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true,
-      });
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       localStreamRef.current = stream;
       setVideoOpen(true);
       return stream;
     } catch (err) {
       console.error("Error accessing media devices:", err);
-      alert(err.message || "Could not access camera/microphone. Please check permissions and ensure you are on HTTPS.");
+      const msg = err.name === "NotFoundError" || err.name === "DevicesNotFoundError"
+        ? "No camera or microphone found."
+        : err.name === "NotAllowedError" || err.name === "PermissionDeniedError"
+          ? "Permission to access camera/microphone was denied."
+          : err.message || "Could not access media devices.";
+      alert(msg + " Please check your settings.");
     }
   };
 
@@ -500,7 +502,11 @@ const ChatWindow = () => {
     setIsCallConnected(false); // Reset
     setOutgoingCall({ to: otherUser._id, name: otherUser.name });
 
-    await startVideo();
+    const constraints = type === "video"
+      ? { video: true, audio: true }
+      : { video: false, audio: true };
+
+    await startVideo(constraints);
     const pc = createPeer(otherUser._id);
 
     const offer = await pc.createOffer();
@@ -515,8 +521,12 @@ const ChatWindow = () => {
   };
 
   const acceptCall = async () => {
-    // 1. Start local video
-    await startVideo();
+    // 1. Start local video/audio based on incoming type
+    const constraints = incomingCall.callType === "video"
+      ? { video: true, audio: true }
+      : { video: false, audio: true };
+
+    await startVideo(constraints);
 
     // 2. Create Peer
     const pc = createPeer(incomingCall.from);
