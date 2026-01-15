@@ -1,0 +1,127 @@
+import React, { useEffect } from "react";
+import { useFormik } from "formik";
+import * as Yup from "yup";
+import { useDispatch, useSelector } from "react-redux";
+import { Link, useNavigate } from "react-router-dom";
+import { login, reset } from "../features/authSlice";
+import { Mail, Lock, LogIn, ArrowRight } from "lucide-react";
+
+const Login = () => {
+  const navigate = useNavigate();
+  const dispatch = useDispatch();
+  const { user, isLoading, isError, isSuccess, message } = useSelector(
+    (state) => state.auth
+  );
+
+  useEffect(() => {
+    if (isError) {
+      alert(message);
+    }
+    if (isSuccess || user) {
+      navigate("/chat");
+    }
+    dispatch(reset());
+  }, [user, isError, isSuccess, message, navigate, dispatch]);
+
+  const formik = useFormik({
+    initialValues: { email: "", password: "" },
+    validationSchema: Yup.object({
+      email: Yup.string().email("Invalid email address").required("Required"),
+      password: Yup.string().required("Required"),
+    }),
+    onSubmit: (values) => {
+      dispatch(login(values));
+    },
+  });
+
+  return (
+    <div className="h-screen w-full flex items-center justify-center bg-black overflow-hidden relative">
+      {/* Background Gradient Blob */}
+      <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_top_right,_#4f46e520,_transparent_50%)] pointer-events-none"></div>
+
+      {/* Decorative Blobs */}
+      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-brand/10 rounded-full blur-3xl -z-10 animate-pulse"></div>
+      <div className="absolute bottom-1/4 right-1/4 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl -z-10 animate-pulse delay-1000"></div>
+
+
+      <div className="w-full max-w-md p-6 relative z-10 animate-slide-in">
+        <div className="glass shadow-2xl rounded-3xl p-8 border border-white/10 relative overflow-hidden">
+
+          {/* Header */}
+          <div className="text-center space-y-3 mb-8">
+            <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-brand to-emerald-400 tracking-tight">
+              ChatWave
+            </h1>
+            <p className="text-text-muted text-sm tracking-wide uppercase">
+              Welcome Back
+            </p>
+          </div>
+
+          <form onSubmit={formik.handleSubmit} className="space-y-5">
+            <div>
+              <div className="relative group">
+                <Mail className="absolute left-4 top-3.5 text-text-muted group-focus-within:text-brand transition-colors" size={20} />
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  placeholder="Email Address"
+                  onChange={formik.handleChange}
+                  onBlur={formik.handleBlur}
+                  value={formik.values.email}
+                  className="w-full bg-black/30 text-white pl-12 pr-4 py-3.5 rounded-xl border border-white/10 focus:outline-none focus:border-brand/50 focus:ring-1 focus:ring-brand/50 transition-all placeholder:text-text-muted/50"
+                />
+              </div>
+              {formik.touched.email && formik.errors.email && (
+                <div className="mt-1 text-xs text-red-400 pl-2">
+                  {formik.errors.email}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className="relative group">
+                <Lock className="absolute left-4 top-3.5 text-text-muted group-focus-within:text-brand transition-colors" size={20} />
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  placeholder="Password"
+                  onChange={formik.handleChange}
+                  onBlur={formik.handleBlur}
+                  value={formik.values.password}
+                  className="w-full bg-black/30 text-white pl-12 pr-4 py-3.5 rounded-xl border border-white/10 focus:outline-none focus:border-brand/50 focus:ring-1 focus:ring-brand/50 transition-all placeholder:text-text-muted/50"
+                />
+              </div>
+              {formik.touched.password && formik.errors.password && (
+                <div className="mt-1 text-xs text-red-400 pl-2">
+                  {formik.errors.password}
+                </div>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full bg-brand hover:bg-brand-soft text-white font-bold py-3.5 rounded-xl shadow-lg shadow-brand/20 hover:shadow-brand/40 transition-all active:scale-95 flex items-center justify-center gap-2 mt-4"
+            >
+              {isLoading ? "Logging in..." : "Start Chatting"}
+              {!isLoading && <LogIn size={20} />}
+            </button>
+          </form>
+
+          <div className="mt-8 text-center">
+            <p className="text-sm text-text-muted">
+              Don't have an account?{" "}
+              <Link to="/signup" className="text-brand-soft hover:text-white font-semibold hover:underline transition-all inline-flex items-center gap-1">
+                Sign up <ArrowRight size={14} />
+              </Link>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Login;

@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =========================
+   GLOBAL RESET
+========================= */
+html,
+body {
+  background-color: #0b0f1a;
+  color: #f5f6fa;
+  font-family: "Inter", system-ui, sans-serif;
+}
+
+/* =========================
+   REUSABLE UI CLASSES
+========================= */
+
+@layer components {
+  /* INPUTS */
+  .input-base {
+    @apply w-full rounded-full px-4 py-2 text-sm
+      bg-[#1B1F3B]/80
+      border border-[#2E3470]
+      text-text-main
+      placeholder-text-muted
+      outline-none
+      focus:ring-2 focus:ring-brand
+      focus:border-brand;
+  }
+
+  /* PRIMARY BUTTON */
+  .btn-primary {
+    @apply w-full rounded-full py-2
+      bg-brand text-white
+      font-semibold text-sm
+      hover:bg-brand-soft
+      transition;
+  }
+
+  /* SECONDARY BUTTON */
+  .btn-secondary {
+    @apply w-full rounded-full py-2
+      bg-[#1E2352]
+      text-text-main
+      font-medium text-sm
+      hover:bg-[#2A3070]
+      transition;
+  }
+
+  /* CHAT SHELL */
+  .chat-shell {
+    @apply bg-shell-bg backdrop-blur-xl
+      border border-[#2A3070]
+      rounded-2xl shadow-glass;
+  }
+
+  /* AUTH TITLES */
+  .auth-title {
+    @apply text-2xl font-semibold text-brand;
+  }
+}
+
+/* =========================
+   SCROLLBAR (CLEAN)
+========================= */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2e3470;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #5b4bdb;
+}
