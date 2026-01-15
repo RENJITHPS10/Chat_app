@@ -12,6 +12,7 @@ import socket from "../socket";
 import { getSender, getSenderFull } from "../utils/chatLogics";
 import GroupChatModal from "./GroupChatModal";
 import SearchModal from "./SearchModal";
+import ProfileModal from "./ProfileModal";
 import { Plus, Search, LogOut } from "lucide-react";
 import { logout } from "../features/authSlice";
 
@@ -21,6 +22,7 @@ const Sidebar = () => {
   const [search, setSearch] = useState("");
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [showSearchModal, setShowSearchModal] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
 
   const { user } = useSelector((state) => state.auth);
   const {
@@ -100,7 +102,7 @@ const Sidebar = () => {
       {/* ================= PROFILE & GROUP ================= */}
       <div className="h-20 px-6 flex items-center justify-between glass-header shrink-0">
         <button
-          onClick={() => navigate("/profile")}
+          onClick={() => setShowProfileModal(true)}
           className="flex items-center gap-3 group transition-all"
         >
           <div className="relative">
@@ -238,6 +240,7 @@ const Sidebar = () => {
 
       {showGroupModal && <GroupChatModal onClose={() => setShowGroupModal(false)} />}
       {showSearchModal && <SearchModal onClose={() => setShowSearchModal(false)} />}
+      {showProfileModal && <ProfileModal onClose={() => setShowProfileModal(false)} />}
     </div>
   );
 };
