@@ -98,7 +98,7 @@ const EditProfile = () => {
       <div className="w-full h-full md:h-[95vh] md:max-w-[1600px] flex md:rounded-2xl overflow-hidden shadow-[0_0_50px_rgba(0,0,0,0.5)] border-none md:border border-white/10 bg-black/40 backdrop-blur-xl relative z-10">
 
         {/* SIDEBAR */}
-        <div className="hidden md:block border-r border-white/10 h-full">
+        <div className="hidden md:block md:w-1/3 shrink-0 h-full">
           <Sidebar />
         </div>
 

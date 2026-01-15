@@ -12,7 +12,8 @@ import socket from "../socket";
 import { getSender, getSenderFull } from "../utils/chatLogics";
 import GroupChatModal from "./GroupChatModal";
 import SearchModal from "./SearchModal";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, LogOut } from "lucide-react";
+import { logout } from "../features/authSlice";
 
 const Sidebar = () => {
   const dispatch = useDispatch();
@@ -31,6 +32,14 @@ const Sidebar = () => {
     isError,
     message,
   } = useSelector((state) => state.chat);
+
+  const handleLogout = () => {
+    if (socket && socket.connected) {
+      socket.disconnect();
+    }
+    dispatch(logout());
+    navigate("/", { replace: true });
+  };
 
   /* ================= FETCH CHATS ================= */
   useEffect(() => {
@@ -86,7 +95,7 @@ const Sidebar = () => {
 
   return (
     /* ✅ GLASS SIDEBAR */
-    <div className="h-full w-full md:w-1/3 flex flex-col border-r border-white/10 glass">
+    <div className="h-full w-full md:w-1/3 flex flex-col border-r border-white/10 glass shrink-0">
 
       {/* ================= PROFILE & GROUP ================= */}
       <div className="h-20 px-6 flex items-center justify-between glass-header shrink-0">
@@ -121,6 +130,13 @@ const Sidebar = () => {
             title="Create Group"
           >
             <Plus size={22} />
+          </button>
+          <button
+            onClick={handleLogout}
+            className="p-3 rounded-xl bg-white/5 hover:bg-danger/20 text-text-muted hover:text-danger transition-all shadow-lg hover:shadow-danger/20 active:scale-95"
+            title="Logout"
+          >
+            <LogOut size={22} />
           </button>
         </div>
       </div>
