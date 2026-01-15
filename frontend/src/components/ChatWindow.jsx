@@ -96,6 +96,7 @@ const ChatWindow = () => {
   const remoteVideoRef = useRef(null);
   const localStreamRef = useRef(null);
   const peerConnectionRef = useRef(null);
+  const iceCandidatesQueue = useRef([]);
   const [remoteStream, setRemoteStream] = useState(null);
 
   /* 🆕 */
@@ -116,15 +117,34 @@ const ChatWindow = () => {
     });
 
     socket.on("call-answered", async ({ answer }) => {
-      setIsCallConnected(true); // ✅ Connected
-      if (peerConnectionRef.current) {
-        await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
+      setIsCallConnected(true);
+      const pc = peerConnectionRef.current;
+      if (pc) {
+        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+        // Process queued ice candidates
+        while (iceCandidatesQueue.current.length > 0) {
+          const candidate = iceCandidatesQueue.current.shift();
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          } catch (err) {
+            console.error("Error adding queued ice candidate:", err);
+          }
+        }
       }
     });
 
     socket.on("ice-candidate", async ({ candidate }) => {
-      if (peerConnectionRef.current && candidate) {
-        await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+      if (!candidate) return;
+
+      const pc = peerConnectionRef.current;
+      if (pc && pc.remoteDescription && pc.remoteDescription.type) {
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (err) {
+          console.error("Error adding ice candidate:", err);
+        }
+      } else {
+        iceCandidatesQueue.current.push(candidate);
       }
     });
 
@@ -366,22 +386,38 @@ const ChatWindow = () => {
   };
 
   /* ================= VIDEO ================= */
-  const createPeer = () => {
+  const createPeer = (toUserId) => {
     const pc = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun2.l.google.com:19302" },
+        { urls: "stun:stun3.l.google.com:19302" },
+        { urls: "stun:stun4.l.google.com:19302" },
+      ],
     });
 
     pc.onicecandidate = (event) => {
-      if (event.candidate) {
+      if (event.candidate && toUserId) {
         socket.emit("ice-candidate", {
-          to: selectedChat._id,
+          to: toUserId,
           candidate: event.candidate,
         });
       }
     };
 
+    pc.oniceconnectionstatechange = () => {
+      console.log("ICE Connection State:", pc.iceConnectionState);
+      if (pc.iceConnectionState === "failed") {
+        console.error("WebRTC Connection Failed");
+      }
+    };
+
     pc.ontrack = (event) => {
-      setRemoteStream(event.streams[0]);
+      if (event.streams && event.streams[0]) {
+        console.log("Remote track received");
+        setRemoteStream(event.streams[0]);
+      }
     };
 
     if (localStreamRef.current) {
@@ -430,6 +466,7 @@ const ChatWindow = () => {
     setIncomingCall(null);
     setOutgoingCall(null);
     setIsCallConnected(false);
+    iceCandidatesQueue.current = [];
   };
 
   const endCurrentCall = () => {
@@ -460,7 +497,7 @@ const ChatWindow = () => {
     setOutgoingCall({ to: otherUser._id, name: otherUser.name });
 
     await startVideo();
-    const pc = createPeer();
+    const pc = createPeer(otherUser._id);
 
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -478,7 +515,7 @@ const ChatWindow = () => {
     await startVideo();
 
     // 2. Create Peer
-    const pc = createPeer();
+    const pc = createPeer(incomingCall.from);
 
     // 3. Set Remote Desc (Offer)
     await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
@@ -495,6 +532,16 @@ const ChatWindow = () => {
 
     setIsCallConnected(true); // ✅ Connected
     setIncomingCall(null);
+
+    // Process queued ice candidates if any
+    while (iceCandidatesQueue.current.length > 0) {
+      const candidate = iceCandidatesQueue.current.shift();
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.error("Error adding queued ice candidate:", err);
+      }
+    }
   };
 
   const rejectCall = () => {
