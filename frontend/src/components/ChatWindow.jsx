@@ -440,16 +440,20 @@ const ChatWindow = () => {
     }
 
     try {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Your browser does not support camera access or you are not using a secure (HTTPS) connection.");
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: true,
       });
       localStreamRef.current = stream;
-      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
       setVideoOpen(true);
       return stream;
     } catch (err) {
       console.error("Error accessing media devices:", err);
+      alert(err.message || "Could not access camera/microphone. Please check permissions and ensure you are on HTTPS.");
     }
   };
 
@@ -780,7 +784,18 @@ const ChatWindow = () => {
         <div className="fixed inset-0 bg-black/95 z-[999] flex flex-col md:flex-row backdrop-blur-sm">
           <div className="flex-1 relative border-r border-white/10">
             {/* Local Video - muted to avoid echo */}
-            <video ref={localVideoRef} autoPlay playsInline muted className="w-full h-full object-cover mirror-mode" />
+            <video
+              ref={(ref) => {
+                if (ref && localStreamRef.current) {
+                  ref.srcObject = localStreamRef.current;
+                }
+                localVideoRef.current = ref;
+              }}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-full object-cover mirror-mode"
+            />
             <div className="absolute top-4 left-4 glass px-3 py-1 rounded-full text-white text-xs font-bold tracking-wide">You</div>
           </div>
           <div className="flex-1 relative bg-app-bg flex items-center justify-center overflow-hidden">
