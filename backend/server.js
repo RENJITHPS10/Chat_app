@@ -18,9 +18,22 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
+const allowedOrigins = [
+  process.env.CLIENT_URL,
+  process.env.LIVE_CLIENT_URL,
+];
+
 app.use(
   cors({
-    origin: "http://localhost:5173",
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true); // Postman, mobile apps
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
     credentials: true,
   })
 );
@@ -35,7 +48,7 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 /* ================= ROUTES ================= */
 app.use("/api/auth", authRoutes);
 app.use("/api/message", messageRoutes);
-app.use("/api/chat", chatRoutes); // Added chatRoutes
+app.use("/api/chat", chatRoutes);
 app.use("/api/upload", uploadRoutes);
 
 app.get("/", (req, res) => {
@@ -49,7 +62,8 @@ const server = http.createServer(app);
 const io = new Server(server, {
   pingTimeout: 60000,
   cors: {
-    origin: "http://localhost:5173",
+    origin: allowedOrigins,
+    credentials: true,
   },
 });
 
@@ -57,7 +71,7 @@ const io = new Server(server, {
 connectDB();
 
 /* ================= SOCKET LOGIC ================= */
-const onlineUsers = new Map(); // userId -> socketId
+const onlineUsers = new Map();
 
 io.on("connection", (socket) => {
   console.log("🟢 Socket connected:", socket.id);
@@ -66,7 +80,6 @@ io.on("connection", (socket) => {
     if (!user?._id) return;
     socket.join(user._id);
 
-    // Track online status
     onlineUsers.set(user._id, socket.id);
     io.emit("online-users", Array.from(onlineUsers.keys()));
 
@@ -77,47 +90,15 @@ io.on("connection", (socket) => {
     socket.join(roomId);
   });
 
-  socket.on("new message", (newMessageRecieved) => {
-    var chat = newMessageRecieved.chat;
+  socket.on("new message", (msg) => {
+    if (!msg.chat?.users) return;
 
-    if (!chat.users) return console.log("chat.users not defined");
-
-    chat.users.forEach((user) => {
-      if (user._id == newMessageRecieved.sender._id) return;
-
-      socket.in(user._id).emit("message received", newMessageRecieved);
+    msg.chat.users.forEach((user) => {
+      if (user._id === msg.sender._id) return;
+      socket.to(user._id).emit("message received", msg);
     });
   });
 
-  socket.on("message edited", (editedMessage) => {
-    var chat = editedMessage.chat;
-    if (!chat.users) return;
-
-    chat.users.forEach((user) => {
-      socket.in(user._id).emit("message updated", editedMessage);
-    });
-  });
-
-  socket.on("message deleted", (data) => {
-    // data: { messageId, chatId, users }
-    if (!data.users) return;
-
-    data.users.forEach((user) => {
-      socket.in(user._id || user).emit("message removed", data);
-    });
-  });
-
-  socket.on("mark as read", (data) => {
-    // data: { chatId, userId, users }
-    if (!data.users) return;
-
-    data.users.forEach((user) => {
-      if (user._id == data.userId) return;
-      socket.in(user._id || user).emit("messages seen", data);
-    });
-  });
-
-  /* CALL SIGNALING (WebRTC) */
   socket.on("call-user", ({ from, to, offer, callType }) => {
     io.to(to).emit("incoming-call", { from, offer, callType });
   });
@@ -137,19 +118,14 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     console.log("🔴 Socket disconnected:", socket.id);
 
-    // Remove from online list
-    let disconnectedUserId = null;
     for (let [userId, socketId] of onlineUsers.entries()) {
       if (socketId === socket.id) {
-        disconnectedUserId = userId;
         onlineUsers.delete(userId);
         break;
       }
     }
 
-    if (disconnectedUserId) {
-      io.emit("online-users", Array.from(onlineUsers.keys()));
-    }
+    io.emit("online-users", Array.from(onlineUsers.keys()));
   });
 });
 
