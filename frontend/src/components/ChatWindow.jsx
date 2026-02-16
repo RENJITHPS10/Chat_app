@@ -3,7 +3,11 @@ import { useDispatch, useSelector } from "react-redux";
 import api from "../utils/api";
 import socket from "../socket";
 import dayjs from "dayjs";
-import { markUserAsMessaged } from "../features/chatSlice";
+import {
+  markUserAsMessaged,
+  respondToRequest,
+  setLatestMessage,
+} from "../features/chatSlice";
 import { getSender, getSenderFull } from "../utils/chatLogics";
 
 import {
@@ -24,6 +28,7 @@ import {
   CheckCheck,
   Pencil,
   Trash2,
+  MessageSquareDot,
 } from "lucide-react";
 import GroupInfoModal from "./GroupInfoModal";
 
@@ -149,15 +154,12 @@ const ChatWindow = () => {
     });
 
     socket.on("call-ended", () => {
-      // If we were the caller and it wasn't connected, it means they rejected or missed.
-      // BUT logic for sending 'Missed Call' is better handled by whoever ended it or a timeout.
-      // If the other side ended it (Reject), we receive call-ended.
-      // If we are outgoingCall and !isCallConnected -> It was rejected by them.
-
-      // However, we can't easily access the LATEST state of outgoingCall inside this closure due to closure staleness 
-      // unless we use a ref or dependency array. Since this effect is [user], it might be stale.
-      // Let's rely on refs or simple logic. 
-      // Actually, simplest is:
+      // Logic for sender to record a missed call if recipient never answered
+      // We use a functional update or refs if needed, but here we can check if it's our outgoing call
+      // and it hasn't connected yet.
+      if (outgoingCallRef.current && !isCallConnectedRef.current) {
+        sendMissedCallMessage(outgoingCallRef.current.to);
+      }
       stopVideo();
     });
 
@@ -169,20 +171,11 @@ const ChatWindow = () => {
     };
   }, [user]);
 
-  // Handle checking state for rejected calls needs up-to-date state.
-  // We can wrap 'call-ended' in a separate useEffect on [outgoingCall, isCallConnected]
-  useEffect(() => {
-    const handleRemoteHangup = () => {
-      if (outgoingCall && !isCallConnected) {
-        // They rejected the call. I am the caller.
-        sendMissedCallMessage(outgoingCall.to);
-      }
-      stopVideo();
-    };
-
-    socket.on("call-ended", handleRemoteHangup);
-    return () => socket.off("call-ended", handleRemoteHangup);
-  }, [outgoingCall, isCallConnected]);
+  // Use refs to avoid closure staleness for call state in socket listeners
+  const outgoingCallRef = useRef(outgoingCall);
+  const isCallConnectedRef = useRef(isCallConnected);
+  useEffect(() => { outgoingCallRef.current = outgoingCall; }, [outgoingCall]);
+  useEffect(() => { isCallConnectedRef.current = isCallConnected; }, [isCallConnected]);
 
 
   const sendMissedCallMessage = async (receiverId) => {
@@ -203,6 +196,12 @@ const ChatWindow = () => {
     }
   };
 
+  const handleChatResponse = (status) => {
+    dispatch(respondToRequest({ chatId: selectedChat._id, status }));
+  };
+
+  const isPending = selectedChat?.status === "pending";
+  const iRequested = selectedChat?.requestedBy === user?._id || selectedChat?.requestedBy?._id === user?._id;
 
   /* ================= READ RECEIPTS ================= */
   const markMessagesAsRead = async () => {
@@ -236,6 +235,10 @@ const ChatWindow = () => {
     const handleMessageReceived = (newMessage) => {
       if (!selectedChat) return;
       const chatId = newMessage.chat?._id || newMessage.chat;
+
+      // Update sidebar latest message
+      dispatch(setLatestMessage(newMessage));
+
       if (chatId === selectedChat._id) {
         setMessages((prev) => [...prev, newMessage]);
         markMessagesAsRead(); // Mark incoming as read if chat is open
@@ -308,8 +311,10 @@ const ChatWindow = () => {
       type: "text",
     });
 
-    setMessages((p) => [...p, data]);
+    // Ensure we send the full message object so socket logic has access to msg.chat.users
     socket.emit("new message", data);
+    setMessages((p) => [...p, data]);
+    dispatch(setLatestMessage(data)); // Update sidebar locally
     dispatch(markUserAsMessaged(selectedChat._id));
     setNewMessage("");
   };
@@ -354,8 +359,9 @@ const ChatWindow = () => {
       type: isImage(upload.data.url) ? "image" : isAudio(upload.data.url) ? "audio" : "file" // Basic inference
     });
 
-    setMessages((p) => [...p, data]);
     socket.emit("new message", data);
+    setMessages((p) => [...p, data]);
+    dispatch(setLatestMessage(data)); // Update sidebar locally
     dispatch(markUserAsMessaged(selectedChat._id));
   };
 
@@ -513,7 +519,12 @@ const ChatWindow = () => {
     await pc.setLocalDescription(offer);
 
     socket.emit("call-user", {
-      from: user._id,
+      from: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        pic: user.pic,
+      },
       to: otherUser._id,
       callType: type,
       offer,
@@ -529,7 +540,7 @@ const ChatWindow = () => {
     await startVideo(constraints);
 
     // 2. Create Peer
-    const pc = createPeer(incomingCall.from);
+    const pc = createPeer(incomingCall.from._id);
 
     // 3. Set Remote Desc (Offer)
     await pc.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
@@ -540,7 +551,7 @@ const ChatWindow = () => {
 
     // 5. Emit Answer
     socket.emit("answer-call", {
-      to: incomingCall.from,
+      to: incomingCall.from._id,
       answer,
     });
 
@@ -559,7 +570,7 @@ const ChatWindow = () => {
   };
 
   const rejectCall = () => {
-    socket.emit("end-call", { to: incomingCall.from });
+    socket.emit("end-call", { to: incomingCall.from._id });
     setIncomingCall(null);
   };
 
@@ -605,18 +616,67 @@ const ChatWindow = () => {
           </div>
         </div>
         <div className="flex gap-3 text-brand-soft">
-          <button onClick={() => startCall("audio")} className="p-2.5 rounded-full hover:bg-brand/10 hover:text-brand transition-all active:scale-95">
+          <button
+            onClick={() => !isPending && startCall("audio")}
+            disabled={isPending}
+            className={`p-2.5 rounded-full hover:bg-brand/10 hover:text-brand transition-all active:scale-95 ${isPending ? 'opacity-30 cursor-not-allowed' : ''}`}
+          >
             <Phone size={20} />
           </button>
-          <button onClick={() => startCall("video")} className="p-2.5 rounded-full hover:bg-brand/10 hover:text-brand transition-all active:scale-95">
+          <button
+            onClick={() => !isPending && startCall("video")}
+            disabled={isPending}
+            className={`p-2.5 rounded-full hover:bg-brand/10 hover:text-brand transition-all active:scale-95 ${isPending ? 'opacity-30 cursor-not-allowed' : ''}`}
+          >
             <Video size={20} />
           </button>
         </div>
       </div>
 
+      {/* PENDING BANNER (🆕) */}
+      {isPending && (
+        <div className="mx-6 mt-4 p-6 rounded-3xl bg-brand/10 border border-brand/20 backdrop-blur-xl flex flex-col items-center text-center animate-slide-in relative overflow-hidden group">
+          <div className="absolute inset-0 bg-gradient-to-r from-brand/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
+
+          <div className="w-16 h-16 bg-brand/20 rounded-full flex items-center justify-center mb-4 border border-brand/30 shadow-lg shadow-brand/20">
+            <MessageSquareDot size={32} className="text-brand-soft animate-pulse" />
+          </div>
+
+          <h4 className="text-white font-bold text-lg mb-2">
+            {iRequested ? "Invitation Sent" : "Chat Invitation"}
+          </h4>
+
+          <p className="text-text-muted text-sm max-w-sm mb-6 leading-relaxed">
+            {iRequested
+              ? `Waiting for ${getSender(user, selectedChat.users)} to accept your request. You can't send messages yet.`
+              : `${getSender(user, selectedChat.users)} wants to start a conversation with you.`
+            }
+          </p>
+
+          {!iRequested && (
+            <div className="flex gap-4 w-full max-w-xs">
+              <button
+                onClick={() => handleChatResponse("rejected")}
+                className="flex-1 px-6 py-3 rounded-xl bg-white/5 hover:bg-danger/20 text-text-muted hover:text-danger border border-white/10 hover:border-danger/30 transition-all font-semibold active:scale-95"
+              >
+                Ignore
+              </button>
+              <button
+                onClick={() => handleChatResponse("accepted")}
+                className="flex-1 px-6 py-3 rounded-xl bg-brand hover:bg-brand-soft text-white shadow-lg shadow-brand/30 transition-all font-bold active:scale-95"
+              >
+                Accept
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* MESSAGES */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 custom-scrollbar">
+      <div className={`flex-1 overflow-y-auto px-4 py-4 space-y-3 custom-scrollbar ${isPending ? 'opacity-40 grayscale pointer-events-none' : ''}`}>
         {messages.map((m, i) => {
+          // ... [rest of existing message rendering]
+          // I'll trim this to be safer in replace_file_content
           const isMe = m.sender._id === user._id;
           const url = resolveFileUrl(m.fileUrl);
 
@@ -714,7 +774,7 @@ const ChatWindow = () => {
       </div>
 
       {/* INPUT WITH ICONS (🆕) */}
-      <div className="bg-transparent p-4">
+      <div className={`bg-transparent p-4 ${isPending ? 'opacity-30 pointer-events-none' : ''}`}>
         {editingMessage && (
           <div className="flex items-center justify-between bg-brand/10 border border-brand/20 p-2 rounded-t-2xl mb-[-10px] animate-slide-in relative z-0">
             <div className="flex items-center gap-2 text-brand-soft text-xs font-semibold">
@@ -736,7 +796,8 @@ const ChatWindow = () => {
 
           <button
             className="p-2 rounded-full hover:bg-white/10 text-text-muted hover:text-brand transition-colors"
-            onClick={() => fileInputRef.current.click()}
+            onClick={() => !isPending && fileInputRef.current.click()}
+            disabled={isPending}
           >
             <Paperclip size={20} />
           </button>
@@ -749,7 +810,8 @@ const ChatWindow = () => {
 
           <button
             className="p-2 rounded-full hover:bg-white/10 text-text-muted hover:text-yellow-400 transition-colors"
-            onClick={() => setShowEmoji((p) => !p)}
+            onClick={() => !isPending && setShowEmoji((p) => !p)}
+            disabled={isPending}
           >
             <Smile size={20} />
           </button>
@@ -757,21 +819,24 @@ const ChatWindow = () => {
           <input
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && sendText()}
+            onKeyDown={(e) => e.key === "Enter" && !isPending && sendText()}
+            disabled={isPending}
             className="flex-1 bg-transparent text-white px-2 py-2 text-base focus:outline-none placeholder:text-text-muted/50 font-light"
-            placeholder="Type a message..."
+            placeholder={isPending ? "Chat invitation pending..." : "Type a message..."}
           />
 
           <button
-            onClick={toggleRecording}
+            onClick={() => !isPending && toggleRecording()}
+            disabled={isPending}
             className={`p-2 rounded-full transition-all ${recording ? "bg-red-500/10 text-red-500 animate-pulse" : "hover:bg-white/10 text-text-muted hover:text-red-400"}`}
           >
             <Mic size={20} />
           </button>
 
           <button
-            onClick={sendText}
-            className="bg-brand hover:bg-brand-soft text-white p-2.5 rounded-xl shadow-lg shadow-brand/30 hover:shadow-brand/50 transition-all active:scale-95 ml-1"
+            onClick={() => !isPending && sendText()}
+            disabled={isPending}
+            className="bg-brand hover:bg-brand-soft text-white p-2.5 rounded-xl shadow-lg shadow-brand/30 hover:shadow-brand/50 transition-all active:scale-95 ml-1 disabled:opacity-50"
           >
             <Send size={18} fill="white" />
           </button>
@@ -850,8 +915,8 @@ const ChatWindow = () => {
 
             <div>
               <p className="text-text-muted text-sm uppercase tracking-widest mb-2">Incoming Call from</p>
-              <p className="text-white text-2xl font-bold">{incomingCall.from}</p>
-              {/* Ideally we resolve name from ID here or pass name in socket event */}
+              <p className="text-white text-2xl font-bold">{incomingCall.from.name || "Unknown User"}</p>
+              <p className="text-brand-soft text-sm opacity-80">{incomingCall.from.email || ""}</p>
             </div>
 
             <div className="flex gap-6 justify-center mt-8">

@@ -85,7 +85,7 @@ const SearchModal = ({ onClose }) => {
                                 <img src={user.pic} className="w-10 h-10 rounded-full object-cover border border-white/10 group-hover:border-brand/50 transition-colors" />
                                 <div className="text-white text-sm">
                                     <p className="font-medium group-hover:text-brand-soft transition-colors">{user.name}</p>
-                                    <p className="text-xs text-text-muted">{user.email}</p>
+                                    <p className="text-xs text-text-muted group-hover:text-brand-soft/70 transition-colors">Click to send chat request</p>
                                 </div>
                             </div>
                         ))

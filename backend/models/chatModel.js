@@ -18,6 +18,17 @@ const chatSchema = mongoose.Schema(
             type: mongoose.Schema.Types.ObjectId,
             ref: "User",
         },
+        status: {
+            type: String,
+            enum: ["pending", "accepted", "rejected"],
+            default: function () {
+                return this.isGroupChat ? "accepted" : "pending";
+            },
+        },
+        requestedBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+        },
     },
     {
         timestamps: true,

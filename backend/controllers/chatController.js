@@ -34,6 +34,8 @@ export const accessChat = async (req, res) => {
             chatName: "sender",
             isGroupChat: false,
             users: [req.user._id, userId],
+            requestedBy: req.user._id,
+            status: "pending",
         };
 
         try {
@@ -49,12 +51,15 @@ export const accessChat = async (req, res) => {
     }
 };
 
-// @description     Fetch all chats for a user
+// @description     Fetch all chats for a user (Only Accepted)
 // @route           GET /api/chat/
 // @access          Protected
 export const fetchChats = async (req, res) => {
     try {
-        let results = await Chat.find({ users: { $elemMatch: { $eq: req.user._id } } })
+        let results = await Chat.find({
+            users: { $elemMatch: { $eq: req.user._id } },
+            status: "accepted",
+        })
             .populate("users", "-password")
             .populate("groupAdmin", "-password")
             .populate("latestMessage")
@@ -71,8 +76,67 @@ export const fetchChats = async (req, res) => {
     }
 };
 
+// @description     Get pending chat requests
+// @route           GET /api/chat/requests
+// @access          Protected
+export const getPendingRequests = async (req, res) => {
+    try {
+        const requests = await Chat.find({
+            users: { $elemMatch: { $eq: req.user._id } },
+            status: "pending",
+            requestedBy: { $ne: req.user._id }, // User is the recipient
+        })
+            .populate("users", "-password")
+            .populate("requestedBy", "-password")
+            .sort({ createdAt: -1 });
+
+        res.status(200).json(requests);
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+};
+
+// @description     Accept or Reject chat request
+// @route           PUT /api/chat/respond
+// @access          Protected
+export const respondToChatRequest = async (req, res) => {
+    const { chatId, status } = req.body; // status: 'accepted' or 'rejected'
+
+    if (!["accepted", "rejected"].includes(status)) {
+        return res.status(400).json({ message: "Invalid status" });
+    }
+
+    try {
+        const chat = await Chat.findById(chatId);
+
+        if (!chat) {
+            return res.status(404).json({ message: "Chat request not found" });
+        }
+
+        // Use toString() for comparison if they are objects
+        const isRecipient = chat.users.some(u => u.toString() === req.user._id.toString()) && chat.requestedBy.toString() !== req.user._id.toString();
+
+        if (!isRecipient) {
+            return res.status(401).json({ message: "Not authorized to respond to this request" });
+        }
+
+        if (status === "rejected") {
+            await Chat.findByIdAndDelete(chatId);
+            return res.json({ message: "Request rejected and chat removed" });
+        }
+
+        chat.status = "accepted";
+        await chat.save();
+
+        const updatedChat = await Chat.findById(chatId).populate("users", "-password");
+        res.json(updatedChat);
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+};
+
 // @description     Create New Group Chat
-// @route           POST /api/chat/group
+// ... [rest of file] ...// @route           POST /api/chat/group
 // @access          Protected
 export const createGroupChat = async (req, res) => {
     if (!req.body.users || !req.body.name) {
@@ -161,30 +225,64 @@ export const addToGroup = async (req, res) => {
     }
 };
 
-// @description     Remove user from Group
+// @description     Remove user from Group or Leave Group
 // @route           PUT /api/chat/groupremove
 // @access          Protected
 export const removeFromGroup = async (req, res) => {
     const { chatId, userId } = req.body;
 
-    // check if the requester is admin
+    try {
+        const chat = await Chat.findById(chatId);
 
-    const removed = await Chat.findByIdAndUpdate(
-        chatId,
-        {
-            $pull: { users: userId },
-        },
-        {
-            new: true,
+        if (!chat) {
+            return res.status(404).json({ message: "Chat Not Found" });
         }
-    )
-        .populate("users", "-password")
-        .populate("groupAdmin", "-password");
 
-    if (!removed) {
-        res.status(404);
-        throw new Error("Chat Not Found");
-    } else {
-        res.json(removed);
+        // 1. Check if the user being removed exists in the group
+        const isUserInGroup = chat.users.some(u => u.toString() === userId);
+        if (!isUserInGroup) {
+            return res.status(400).json({ message: "User is not in this group" });
+        }
+
+        // 2. Authorization: 
+        // A user can remove themselves (Leave group)
+        // Only the Admin can remove others
+        const isSelfRemoval = req.user._id.toString() === userId;
+        const isAdmin = chat.groupAdmin.toString() === req.user._id.toString();
+
+        if (!isSelfRemoval && !isAdmin) {
+            return res.status(403).json({ message: "Only admin can remove others from the group" });
+        }
+
+        // 3. Remove the user
+        const updatedUsers = chat.users.filter(u => u.toString() !== userId);
+
+        // 4. Handle Group State
+        if (updatedUsers.length === 0) {
+            // Delete group if last member leaves
+            await Chat.findByIdAndDelete(chatId);
+            return res.status(200).json({ message: "Group deleted because the last member left", chatId });
+        }
+
+        // 5. Admin Reassignment: If admin leaves, set the next person as admin
+        let newAdmin = chat.groupAdmin;
+        if (chat.groupAdmin.toString() === userId) {
+            newAdmin = updatedUsers[0]; // Simple logic: next person becomes admin
+        }
+
+        const updatedChat = await Chat.findByIdAndUpdate(
+            chatId,
+            {
+                users: updatedUsers,
+                groupAdmin: newAdmin,
+            },
+            { new: true }
+        )
+            .populate("users", "-password")
+            .populate("groupAdmin", "-password");
+
+        res.status(200).json(updatedChat);
+    } catch (error) {
+        res.status(400).json({ message: error.message });
     }
 };

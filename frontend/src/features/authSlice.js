@@ -59,6 +59,7 @@ export const updateProfile = createAsyncThunk(
 // LOGOUT
 export const logout = createAsyncThunk("auth/logout", async () => {
   sessionStorage.removeItem("userInfo");
+  sessionStorage.removeItem("messagedUsers");
 });
 
 const authSlice = createSlice({

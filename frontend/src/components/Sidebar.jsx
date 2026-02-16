@@ -7,13 +7,16 @@ import {
   incrementUnreadForUser,
   clearUnreadForUser,
   setOnlineUsers,
+  fetchPendingRequests,
+  respondToRequest,
+  setLatestMessage,
 } from "../features/chatSlice";
 import socket from "../socket";
 import { getSender, getSenderFull } from "../utils/chatLogics";
 import GroupChatModal from "./GroupChatModal";
 import SearchModal from "./SearchModal";
 import ProfileModal from "./ProfileModal";
-import { Plus, Search, LogOut } from "lucide-react";
+import { Plus, Search, LogOut, MessageSquareDot, Check, X as XIcon } from "lucide-react";
 import { logout } from "../features/authSlice";
 
 const Sidebar = () => {
@@ -27,6 +30,7 @@ const Sidebar = () => {
   const { user } = useSelector((state) => state.auth);
   const {
     chats,
+    pendingRequests,
     unreadCounts,
     selectedChat,
     onlineUsers,
@@ -43,10 +47,17 @@ const Sidebar = () => {
     navigate("/", { replace: true });
   };
 
-  /* ================= FETCH CHATS ================= */
+  /* ================= FETCH DATA ================= */
   useEffect(() => {
-    if (user) dispatch(fetchChats());
+    if (user) {
+      dispatch(fetchChats());
+      dispatch(fetchPendingRequests());
+    }
   }, [user, dispatch]);
+
+  const handleRespond = (chatId, status) => {
+    dispatch(respondToRequest({ chatId, status }));
+  };
 
   /* ================= ONLINE STATUS ================= */
   useEffect(() => {
@@ -61,17 +72,13 @@ const Sidebar = () => {
   /* ================= SOCKET UNREAD ================= */
   useEffect(() => {
     const handler = (msg) => {
-      // In group chat, sender is msg.sender (User). msg.chat is the Chat object (or ID).
-      // If msg.chat._id matches selectedChat._id, no unread.
-      // Else increment unread for that chat.
-
       const chatId = msg?.chat?._id || msg?.chat;
       if (!chatId) return;
 
+      // Update recent message in sidebar
+      dispatch(setLatestMessage(msg));
+
       if (!selectedChat || selectedChat._id !== chatId) {
-        // Logic for unread counts should key off chat._id now, not user._id ideally,
-        // but strict backward compat might use user._id for 1-on-1.
-        // Let's use chat._id for unreadCounts keys.
         dispatch(incrementUnreadForUser(chatId));
       }
     };
@@ -155,6 +162,49 @@ const Sidebar = () => {
           />
         </div>
       </div>
+
+      {/* ================= REQUESTS SECTION (🆕) ================= */}
+      {pendingRequests?.length > 0 && (
+        <div className="px-3 mb-4 transition-all animate-slide-in">
+          <div className="flex items-center gap-2 px-3 py-2 text-brand-soft text-[10px] font-bold uppercase tracking-widest opacity-80">
+            <MessageSquareDot size={14} />
+            <span>Chat Invitations ({pendingRequests.length})</span>
+          </div>
+          <div className="space-y-1">
+            {pendingRequests.map((req) => (
+              <div
+                key={req._id}
+                className="flex items-center justify-between p-3 rounded-xl bg-brand/5 border border-brand/10 hover:border-brand/30 transition-all group"
+              >
+                <div className="flex items-center gap-3 truncate flex-1">
+                  <img src={req.requestedBy?.pic} className="h-9 w-9 rounded-full border border-white/10" alt="" />
+                  <div className="truncate text-xs">
+                    <p className="text-white font-semibold truncate">{req.requestedBy?.name}</p>
+                    <p className="text-text-muted truncate">wants to chat</p>
+                  </div>
+                </div>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => handleRespond(req._id, "accepted")}
+                    className="p-1.5 rounded-lg bg-success/20 text-success hover:bg-success hover:text-black transition-all"
+                    title="Accept"
+                  >
+                    <Check size={14} />
+                  </button>
+                  <button
+                    onClick={() => handleRespond(req._id, "rejected")}
+                    className="p-1.5 rounded-lg bg-danger/20 text-danger hover:bg-danger hover:text-white transition-all"
+                    title="Ignore"
+                  >
+                    <XIcon size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="h-[1px] bg-white/5 mt-4 mx-3" />
+        </div>
+      )}
 
       {/* ================= CHAT LIST (SCROLLABLE) ================= */}
       <div className="flex-1 overflow-y-auto custom-scrollbar px-3 space-y-1 pb-4">

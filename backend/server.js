@@ -91,11 +91,14 @@ io.on("connection", (socket) => {
   });
 
   socket.on("new message", (msg) => {
-    if (!msg.chat?.users) return;
+    const chat = msg.chat;
+    if (!chat || !chat.users) return;
 
-    msg.chat.users.forEach((user) => {
-      if (user._id === msg.sender._id) return;
-      socket.to(user._id).emit("message received", msg);
+    // Option 1: individual user rooms (ensures delivery to sidebar and chat window)
+    chat.users.forEach((user) => {
+      const targetId = user._id || user;
+      if (targetId === msg.sender._id) return;
+      socket.to(targetId).emit("message received", msg);
     });
   });
 
